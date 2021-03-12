@@ -31,7 +31,7 @@ public class AvailabilityToolDao {
 	
 	private static final String TeamMappingSql = 
 			"SELECT A.AT_team_id as ID, H.ctm_id, H.ctm_censustract as census, H.team_id, H.team_name, H.ctm_caretypeid as care_id, \r\n"
-			+ "       H.program, H.ctm_zip5code as zip5, H.ctm_county as county, H.ctm_active as is_active, H.create_ts\r\n"
+			+ "       H.program, H.ctm_zip5code as zip5, H.ctm_county as county, H.ctm_active as is_active, A.ctm_active, H.create_ts\r\n"
 			+ "FROM \r\n"
 			+ "(select m.ctm_id, m.ctm_censustract, m.ctm_teamid as team_id, t.team_name,  m.ctm_caretypeid, p.ctype_description as program,\r\n"
 			+ "     m.ctm_zip5code,   m.ctm_county, m.ctm_active, t.team_insertdate as create_ts\r\n"
@@ -41,7 +41,8 @@ public class AvailabilityToolDao {
 			+ ") as H\r\n"
 			+ "FULL JOIN CHHA.dbo.AT_Teams A ON H.ctm_id = A.ctm_id\r\n"
 			+ "WHERE A.ctm_id is null \r\n"
-			+ "OR (H.ctm_id is null AND A.record_status <> 'D')";
+			+ "OR (H.ctm_id is null AND A.record_status <> 'D') "
+			+ "OR (A.ctm_id is not null AND H.ctm_id is not null AND H.ctm_active <> A.ctm_active)";
 	
 	private static final String BranchTeamSql = "SELECT A.AT_branch_team_id as ID, H.branch_code, H.branch_name, H.team_id, H.team_name, H.create_ts\r\n"
 			+ "FROM\r\n"
@@ -75,43 +76,87 @@ public class AvailabilityToolDao {
 			@Override
 			public TeamMaping mapRow(ResultSet rs, int rowNum) throws SQLException {
 				TeamMaping m = new TeamMaping();
-				int id = rs.getInt("ID");
-				if (rs.wasNull()) { //new mapping from HCHB
-					m.setCtmId(rs.getInt("ctm_id"));
-					m.setCensusTract(rs.getString("census"));
-					m.setTeamId(rs.getInt("team_id"));
-					m.setTeamName(rs.getString("team_name"));
-					m.setCareTypeId(rs.getInt("care_id"));
-					m.setProgram(rs.getString("program"));
-					m.setZip5code(rs.getString("zip5"));
-					m.setCounty(rs.getString("county"));
-					m.setCtmActive(rs.getString("is_active"));
-					m.setCreateTs(rs.getTimestamp("create_ts"));
-					m.setRecordStatus(" ");
-				} else { // records deleted from HCHB but still remained in VNS 
-					// update the AT_Teams record_statsus to "D"
-					m.setPk(id);
-					m.setRecordStatus("D");
-				}
+				m.pk = rs.getInt("ID");
+				m.ctmId = rs.getInt("ctm_id");
+				m.censusTract = rs.getString("census");
+				m.teamId = rs.getInt("team_id");
+				m.teamName = rs.getString("team_name");
+				m.careTypeId = rs.getInt("care_id");
+				m.program = rs.getString("program");
+				m.zip5code = rs.getString("zip5");
+				m.county = rs.getString("county");
+				m.ctmActive = rs.getString("is_active");
+				m.ctmActiveOld = rs.getString("ctm_active");
+				m.createTs = rs.getTimestamp("create_ts");
 				
 				return m;
-			}
-			
+			}			
 		});
 		
-		for (TeamMaping t : list) {
-			if (t.getPk() > 0) {
-				updateMappingStatus(t);
-				//public HistoryChange(String tableName, String column, String old_val, String new_val, String description) {
-				HistoryChange ch = new HistoryChange("AT_Teams", "AT_team_id", "", t.getPk() + "", "Deleted in HCHB");
-				insertHistoryChange(ch);
+		for (TeamMaping m : list) {
+			if (m.pk == 0) { //new record
+				m.recordStatus = " ";
+				insertMapping(m);
+				HistoryChange ch = new HistoryChange("AT_Teams", "ctm_id", "N/A", m.ctmId+"", "New record");
+				insertHistoryChange(ch);				
+			} else if (m.ctmId == 0){ // records deleted from HCHB but still remained in VNS 
+				// update the AT_Teams record_statsus to "D"
+				m.recordStatus = "D";
+				updateMappingStatus(m);
+				HistoryChange ch = new HistoryChange("AT_Teams", "AT_team_id", "N/A", m.pk + "", "Deleted record, PK[" + m.pk + "]");
+				insertHistoryChange(ch);				
 			} else {
-				insertMapping(t);
-				HistoryChange ch = new HistoryChange("AT_Teams", "ctm_id", "", t.getCtmId()+"", "New record loaded from HCHB");
+				m.recordStatus = "C";	
+				updateMappingStatus(m);
+				HistoryChange ch = new HistoryChange("AT_Teams", "ctm_active", m.ctmActiveOld, m.ctmActive, "Changed record, PK[" + m.pk + "]");
 				insertHistoryChange(ch);
 			}
 		}
 	}
+	
+//	public void synTeamMapping() {
+//		// search for the new/deleted records in AT_Teams table
+//		List<TeamMaping> list = jdbc.query(TeamMappingSql, new RowMapper<TeamMaping>() {
+//			@Override
+//			public TeamMaping mapRow(ResultSet rs, int rowNum) throws SQLException {
+//				TeamMaping m = new TeamMaping();
+//				int id = rs.getInt("ID");
+//				if (rs.wasNull()) { //new mapping from HCHB
+//					m.ctmId = rs.getInt("ctm_id");
+//					m.censusTract = rs.getString("census");
+//					m.teamId = rs.getInt("team_id");
+//					m.teamName = rs.getString("team_name");
+//					m.careTypeId = rs.getInt("care_id");
+//					m.program = rs.getString("program");
+//					m.zip5code = rs.getString("zip5");
+//					m.county = rs.getString("county");
+//					m.ctmActive = rs.getString("is_active");
+//					m.createTs = rs.getTimestamp("create_ts");
+//					m.recordStatus = " ";
+//				} else { // records deleted from HCHB but still remained in VNS 
+//					// update the AT_Teams record_statsus to "D"
+//					m.pk = id;
+//					m.recordStatus = "D";
+//				}
+//				
+//				return m;
+//			}
+//			
+//		});
+//		
+//		for (TeamMaping t : list) {
+//			if (t.pk > 0) {
+//				updateMappingStatus(t);
+//				//public HistoryChange(String tableName, String column, String old_val, String new_val, String description) {
+//				HistoryChange ch = new HistoryChange("AT_Teams", "AT_team_id", "N/A", t.pk + "", "Deleted in HCHB");
+//				insertHistoryChange(ch);
+//			} else {
+//				insertMapping(t);
+//				HistoryChange ch = new HistoryChange("AT_Teams", "ctm_id", "N/A", t.ctmId+"", "New record loaded from HCHB");
+//				insertHistoryChange(ch);
+//			}
+//		}
+//	}
 	
 	public void synBranchTeams() {
 		// search for the new/deleted records in AT_BRANCH_TEAMS table
@@ -149,9 +194,9 @@ public class AvailabilityToolDao {
 	}
 	
 	private void updateMappingStatus(TeamMaping t) {
-		log.info("AT_teams record(" + t.getPk() + ") has been removed in HCHB");
-		String sql = "UPDATE CHHA.dbo.AT_Teams SET record_status = ? WHERE AT_team_id = ?";
-		int uCount = jdbc.update(sql, t.getRecordStatus(), t.getPk());
+		log.info("AT_teams record(" + t.pk+ ") status is updated to " + t.recordStatus);
+		String sql = "UPDATE CHHA.dbo.AT_Teams SET record_status = ?, ctm_active = ? WHERE AT_team_id = ?";
+		int uCount = jdbc.update(sql, t.recordStatus, t.ctmActive, t.pk);
 		if (uCount != 1) {
 			log.error("update failed");
 		}
@@ -166,65 +211,28 @@ public class AvailabilityToolDao {
 		}
 	}
 	
-//	void insertMapping(TeamMaping t) {
-//		log.info("Insert new HCHB team_mapping, ctm_team_id(" + t.getCtmId() + ") to AT_Teams table");
-//		String sql = "INSERT INTO CHHA.dbo.AT_Teams (ctm_id, census_tract, team_id, team_name, care_type_id, program, zip5code, county, ctm_active, create_ts)\r\n"
-//				+ "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-//		
-//		jdbc.update(sql, new PreparedStatementSetter() {
-//			@Override
-//			public void setValues(PreparedStatement ps) throws SQLException {
-//				ps.setInt(1, t.getCtmId());  
-//		        ps.setString(2, t.getCensusTract());
-//		        ps.setInt(3, t.getTeamId());
-//		        ps.setString(4, t.getTeamName());
-//		        ps.setInt(5,  t.getCareTypeId());
-//		        ps.setString(6, t.getProgram());
-//		        ps.setString(7, t.getZip5code());
-//		        ps.setString(8, t.getCounty());
-//		        ps.setString(9, t.getCtmActive());
-//		        ps.setTimestamp(10, t.getCreateTs());
-//			}			
-//		});
-//	}
-	
 	private void insertMapping(TeamMaping t) {
-		log.info("Insert new HCHB team_mapping, ctm_team_id(" + t.getCtmId() + ") to AT_Teams table");
+		log.info("Insert new HCHB team_mapping, ctm_team_id(" + t.ctmId + ") to AT_Teams table");
 		
-		//insertActor.withTableName("CHHA.dbo.AT_Teams").usingGeneratedKeyColumns("AT_team_id");	
-		
-//		MapSqlParameterSource params = new MapSqlParameterSource();
-//		 
-//		params.addValue("ctm_id", t.getCtmId()) 
-//			.addValue("census_tract", t.getCensusTract())
-//			.addValue("team_id", t.getTeamId())
-//			.addValue("team_name", t.getTeamName())
-//			.addValue("care_type_id", t.getCareTypeId())
-//			.addValue("program", t.getProgram())
-//			.addValue("zip5code", t.getZip5code())
-//			.addValue("county", t.getCounty())
-//			.addValue("ctm_active", t.getCtmActive())
-//		    .addValue("create_ts", t.getCreateTs());
 		Map<String, Object> params = new HashMap<>();
 		 
-		params.put("ctm_id", t.getCtmId()); 
-		params.put("census_tract", t.getCensusTract());
-		params.put("team_id", t.getTeamId());
-		params.put("team_name", t.getTeamName());
-		params.put("care_type_id", t.getCareTypeId());
-		params.put("program", t.getProgram());
-		params.put("zip5code", t.getZip5code());
-		params.put("county", t.getCounty());
-		params.put("ctm_active", t.getCtmActive());
-		params.put("create_ts", t.getCreateTs());
+		params.put("ctm_id", t.ctmId); 
+		params.put("census_tract", t.censusTract);
+		params.put("team_id", t.teamId);
+		params.put("team_name", t.teamName);
+		params.put("care_type_id", t.careTypeId);
+		params.put("program", t.program);
+		params.put("zip5code", t.zip5code);
+		params.put("county", t.county);
+		params.put("ctm_active", t.ctmActive);
+		params.put("create_ts", t.createTs);
 		
 		log.debug(params.toString());
 		Number newPk = teamInsert.executeAndReturnKey(params);
 		
 		if (newPk != null) {
-		    log.debug("Insert Successfully. New Id = " + newPk.intValue());
-		    
-		    if (t.getCtmActive().equalsIgnoreCase("Y") && isChhaCareType(t.getCareTypeId())) {
+		    if (t.ctmActive.equalsIgnoreCase("Y") && isChhaCareType(t.careTypeId)) {
+		    	log.debug("To create new Staff availability for team mapping, PK[" + newPk.intValue()+"]");
 		    	String[] discplines = new String[] {"RN","PT", "OT", "SW", "SLP", "PD"};
 		    	jdbc.batchUpdate(
 	                "INSERT INTO CHHA.dbo.AT_Staff_Availability (team_id, discpline) VALUES(?,?)",
@@ -293,86 +301,11 @@ public class AvailabilityToolDao {
 		private String zip5code;
 		private String county;
 		private String ctmActive;
+		private String ctmActiveOld;
 		private Timestamp createTs;
 		private String recordStatus;
 		
-		public TeamMaping() {}
-		
-		public int getPk() {
-			return pk;
-		}
 
-		public void setPk(int pk) {
-			this.pk = pk;
-		}
-
-		public int getCtmId() {
-			return ctmId;
-		}
-		public void setCtmId(int ctmId) {
-			this.ctmId = ctmId;
-		}
-		public String getCensusTract() {
-			return censusTract;
-		}
-		public void setCensusTract(String censusTract) {
-			this.censusTract = censusTract;
-		}
-		public int getTeamId() {
-			return teamId;
-		}
-		public void setTeamId(int teamId) {
-			this.teamId = teamId;
-		}
-		public String getTeamName() {
-			return teamName;
-		}
-		public void setTeamName(String teamName) {
-			this.teamName = teamName;
-		}
-		public int getCareTypeId() {
-			return careTypeId;
-		}
-		public void setCareTypeId(int careTypeId) {
-			this.careTypeId = careTypeId;
-		}
-		public String getProgram() {
-			return program;
-		}
-		public void setProgram(String program) {
-			this.program = program;
-		}
-		public String getZip5code() {
-			return zip5code;
-		}
-		public void setZip5code(String zip5code) {
-			this.zip5code = zip5code;
-		}
-		public String getCounty() {
-			return county;
-		}
-		public void setCounty(String county) {
-			this.county = county;
-		}
-		public String getCtmActive() {
-			return ctmActive;
-		}
-		public void setCtmActive(String ctmActive) {
-			this.ctmActive = ctmActive;
-		}
-		public Timestamp getCreateTs() {
-			return createTs;
-		}
-		public void setCreateTs(Timestamp createTs) {
-			this.createTs = createTs;
-		}
-		public String getRecordStatus() {
-			return recordStatus;
-		}
-		public void setRecordStatus(String recordStatus) {
-			this.recordStatus = recordStatus;
-		}
-		
 		@Override
 		public String toString() {
 			return "TeamMaping [ctmId=" + ctmId + ", censusTract=" + censusTract + ", teamId=" + teamId + ", teamName="
