@@ -1,0 +1,26 @@
+
+ZoneId zonedId = ZoneId.of( "America/Montreal" );
+LocalDate today = LocalDate.now( zonedId );
+System.out.println( "today : " + today );
+
+
+copy 2021-02-24.pdf 2021-02-10.pdf;
+copy 2021-02-24.pdf 2021-02-11.pdf;
+copy 2021-02-24.pdf 2021-02-12.pdf;
+copy 2021-02-24.pdf 2021-02-13.pdf;
+copy 2021-02-24.pdf 2021-02-14.pdf;
+copy 2021-02-24.pdf 2021-02-15.pdf;
+copy 2021-02-24.pdf 2021-02-16.pdf;
+copy 2021-02-24.pdf 2021-02-17.pdf;
+copy 2021-02-24.pdf 2021-02-18.pdf;
+copy 2021-02-24.pdf 2021-02-19.pdf;
+copy 2021-02-24.pdf 2021-02-20.pdf;
+copy 2021-02-24.pdf 2021-02-01.pdf;
+copy 2021-02-24.pdf 2021-02-02.pdf;
+copy 2021-02-24.pdf 2021-02-03.pdf;
+copy 2021-02-24.pdf 2021-02-04.pdf;
+copy 2021-02-24.pdf 2021-02-05.pdf;
+copy 2021-02-24.pdf 2021-02-06.pdf;
+copy 2021-02-24.pdf 2021-02-07.pdf;
+copy 2021-02-24.pdf 2021-02-08.pdf;
+copy 2021-02-24.pdf 2021-02-09.pdf;

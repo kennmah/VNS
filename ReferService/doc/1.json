@@ -1,0 +1,35 @@
+{
+  "status": "OK",
+  "counts": 2,
+  "results":
+  [
+	  {
+	  "branch_code": "bc1",
+	  "branch_name": "brooklyn 1",
+	  "team_id": 2,	
+	  "team_name": "team1",
+	  "census_tract": 12345,
+	  "program": "",
+	  "zip5": 10000,
+	  "county": "Queens",
+	  "is_active": "Y",  
+	  "discipline": "RN",
+	  "AT_staff_status_id": 10,
+	  "availability": 1
+	  },
+	  {
+	  "branch_code": "bc2",
+	  "branch_name": "brooklyn 2",
+	  "team_id": 2,	
+	  "team_name": "team1",
+	  "census_tract": 12345,
+	  "program": "",
+	  "zip5": 10000,
+	  "county": "Queens",
+	  "is_active": "Y",  
+	  "discipline": "RN",
+	  "AT_staff_status_id": 11,
+	  "availability": 1
+	  }
+  ]
+}

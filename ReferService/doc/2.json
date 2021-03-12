@@ -1,0 +1,18 @@
+{
+  "status": "OK",
+  "message": "",
+  "counts": 2,
+  "results":
+  [
+	  {  	
+	  	"branch_code": "b01",
+	  	"branch_name": "bc-a name",
+	  	"phone": "2120001111"
+	  },
+	  {
+	  "branch_code": "bx1",
+	  	"branch_name": "bx-a name",
+	  	"phone": "2120001111"
+	  }
+  ]
+}
