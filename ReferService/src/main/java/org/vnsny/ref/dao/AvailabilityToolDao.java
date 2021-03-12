@@ -27,6 +27,7 @@ public class AvailabilityToolDao {
 	
 	private JdbcTemplate jdbc;	
 	private SimpleJdbcInsert teamInsert;
+	private SimpleJdbcInsert changeInsert;
 	
 	private static final String TeamMappingSql = 
 			"SELECT A.AT_team_id as ID, H.ctm_id, H.ctm_censustract as census, H.team_id, H.team_name, H.ctm_caretypeid as care_id, \r\n"
@@ -61,6 +62,11 @@ public class AvailabilityToolDao {
 				.withTableName("AT_Teams")
 				.usingColumns("ctm_id","census_tract","team_id","team_name","care_type_id","program","zip5code","county","ctm_active","create_ts")
 				.usingGeneratedKeyColumns("AT_team_id");	
+		
+		this.changeInsert = new SimpleJdbcInsert(dataSource)
+				.withCatalogName("CHHA").withSchemaName("dbo")
+				.withTableName("AT_Change_History")
+				.usingColumns("at_table","at_column","old_val","new_val","description");
     }
 	
 	public void synTeamMapping() {
@@ -96,12 +102,15 @@ public class AvailabilityToolDao {
 		for (TeamMaping t : list) {
 			if (t.getPk() > 0) {
 				updateMappingStatus(t);
+				//public HistoryChange(String tableName, String column, String old_val, String new_val, String description) {
+				HistoryChange ch = new HistoryChange("AT_Teams", "AT_team_id", "", t.getPk() + "", "Deleted in HCHB");
+				insertHistoryChange(ch);
 			} else {
 				insertMapping(t);
+				HistoryChange ch = new HistoryChange("AT_Teams", "ctm_id", "", t.getCtmId()+"", "New record loaded from HCHB");
+				insertHistoryChange(ch);
 			}
 		}
-		
-		
 	}
 	
 	public void synBranchTeams() {
@@ -124,17 +133,19 @@ public class AvailabilityToolDao {
 				}				
 				return m;
 			}			
-		});
+		}); 
 		
 		for (BranchTeam b : list) {
 			if (b.pk > 0) {
 				updateBranchTeamStatus(b);
+				HistoryChange ch = new HistoryChange("AT_Branch_Teams", "AT_branch_team_id", "N/A", b.pk + "", "Deleted in HCHB");
+				insertHistoryChange(ch);
 			} else {
-				insertBranchTeam(b);
+				insertBranchTeam(b);		
+				HistoryChange ch = new HistoryChange("AT_Branch_Teams", "branch_code", "N/A", b.branchCode, "New record loaded from HCHB");
+				insertHistoryChange(ch);
 			}
 		}
-		
-		
 	}
 	
 	private void updateMappingStatus(TeamMaping t) {
@@ -260,8 +271,15 @@ public class AvailabilityToolDao {
 		return false;
 	}
 	
-	private void insertHistoryChange() {
+	private void insertHistoryChange(HistoryChange ch) {
+		MapSqlParameterSource params = new MapSqlParameterSource();
+         params.addValue("at_table", ch.tableName) 
+		.addValue("at_column", ch.column)
+		.addValue("old_val", ch.old_val)
+		.addValue("new_val", ch.new_val)
+		.addValue("description", ch.description);
 		
+        changeInsert.execute(params);
 	}
  
 	private class TeamMaping {
@@ -373,5 +391,22 @@ public class AvailabilityToolDao {
 		private String teamName;
 		private Timestamp createTs;
 		private String recordStatus;
+	}
+	
+	private class HistoryChange {
+		private String tableName;
+		private String column;
+		private String old_val;
+		private String new_val;
+		private String description;
+		
+		public HistoryChange(String tableName, String column, String old_val, String new_val, String description) {
+			super();
+			this.tableName = tableName;
+			this.column = column;
+			this.old_val = old_val;
+			this.new_val = new_val;
+			this.description = description;
+		}		
 	}
 }
