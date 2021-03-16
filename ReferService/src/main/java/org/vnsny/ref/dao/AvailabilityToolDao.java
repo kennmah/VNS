@@ -1,5 +1,10 @@
 package org.vnsny.ref.dao;
 
+import java.io.IOException;
+import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -13,21 +18,29 @@ import javax.sql.DataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.simple.SimpleJdbcInsert;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.vnsny.ref.util.Utils;
 
 @Component
 public class AvailabilityToolDao {
 	private Logger log = LoggerFactory.getLogger(AvailabilityToolDao.class);
 	
+	@Value("${report.file.path}")
+	private String ReportDirectory; 
+	
 	private JdbcTemplate jdbc;	
 	private SimpleJdbcInsert teamInsert;
 	private SimpleJdbcInsert changeInsert;
+
+	private Path teamSyncLck;
 	
 	private static final String TeamMappingSql = 
 			"SELECT A.AT_team_id as ID, H.ctm_id, H.ctm_censustract as census, H.team_id, H.team_name, H.ctm_caretypeid as care_id, \r\n"
@@ -54,9 +67,13 @@ public class AvailabilityToolDao {
 			+ "FULL JOIN CHHA.dbo.AT_Branch_Teams A ON H.branch_code = A.branch_code And H.team_id = A.team_id\r\n"
 			+ "WHERE A.branch_code is null \r\n"
 			+ "OR (H.branch_code is null AND A.record_status <> 'D')";
+
+	private Path branchSyncLck;
 	
 	@Autowired
     public void setDataSource(DataSource dataSource) {
+//		com.zaxxer.hikari.HikariDataSource ds = (com.zaxxer.hikari.HikariDataSource)dataSource;
+//		log.info("url: " + ds.getJdbcUrl() + ",  username: " + ds.getUsername() + ",  pass: " + ds.getPassword());
 		this.jdbc = new JdbcTemplate(dataSource);
 		this.teamInsert = new SimpleJdbcInsert(dataSource)
 				.withCatalogName("CHHA").withSchemaName("dbo")
@@ -68,9 +85,30 @@ public class AvailabilityToolDao {
 				.withCatalogName("CHHA").withSchemaName("dbo")
 				.withTableName("AT_Change_History")
 				.usingColumns("at_table","at_column","old_val","new_val","description");
+		
+		// initialize DataSyncLock file
+		try {
+			teamSyncLck = Paths.get(ReportDirectory, "TeamAvSync.lck");
+			if (Files.notExists(teamSyncLck)) 
+				teamSyncLck = Files.createFile(teamSyncLck);
+			
+			branchSyncLck = Paths.get(ReportDirectory, "BranchSync.lck");
+			if (Files.notExists(branchSyncLck))
+				branchSyncLck = Files.createFile(branchSyncLck);
+		}catch(IOException io) {
+			log.error("DataSync.lck file failed to create");
+		}
     }
 	
-	public void synTeamMapping() {
+	@Scheduled(cron = "0 1 */2 * * *")
+	public void synTeamMapping() throws IOException {
+		FileLock lock = Utils.getLock(this.teamSyncLck);
+		if(lock == null) {
+			log.info("TeamMapping has been synced by another process. Stop here!");
+			return;
+		}
+		
+		log.info("start syncing AT_Teams");
 		// search for the new/deleted records in AT_Teams table
 		List<TeamMaping> list = jdbc.query(TeamMappingSql, new RowMapper<TeamMaping>() {
 			@Override
@@ -102,6 +140,7 @@ public class AvailabilityToolDao {
 			} else if (m.ctmId == 0){ // records deleted from HCHB but still remained in VNS 
 				// update the AT_Teams record_statsus to "D"
 				m.recordStatus = "D";
+				m.ctmActive = m.ctmActiveOld;
 				updateMappingStatus(m);
 				HistoryChange ch = new HistoryChange("AT_Teams", "AT_team_id", "N/A", m.pk + "", "Deleted record, PK[" + m.pk + "]");
 				insertHistoryChange(ch);				
@@ -112,85 +151,49 @@ public class AvailabilityToolDao {
 				insertHistoryChange(ch);
 			}
 		}
+		
+		lock.release();
 	}
-	
-//	public void synTeamMapping() {
-//		// search for the new/deleted records in AT_Teams table
-//		List<TeamMaping> list = jdbc.query(TeamMappingSql, new RowMapper<TeamMaping>() {
-//			@Override
-//			public TeamMaping mapRow(ResultSet rs, int rowNum) throws SQLException {
-//				TeamMaping m = new TeamMaping();
-//				int id = rs.getInt("ID");
-//				if (rs.wasNull()) { //new mapping from HCHB
-//					m.ctmId = rs.getInt("ctm_id");
-//					m.censusTract = rs.getString("census");
-//					m.teamId = rs.getInt("team_id");
-//					m.teamName = rs.getString("team_name");
-//					m.careTypeId = rs.getInt("care_id");
-//					m.program = rs.getString("program");
-//					m.zip5code = rs.getString("zip5");
-//					m.county = rs.getString("county");
-//					m.ctmActive = rs.getString("is_active");
-//					m.createTs = rs.getTimestamp("create_ts");
-//					m.recordStatus = " ";
-//				} else { // records deleted from HCHB but still remained in VNS 
-//					// update the AT_Teams record_statsus to "D"
-//					m.pk = id;
-//					m.recordStatus = "D";
-//				}
-//				
-//				return m;
-//			}
-//			
-//		});
-//		
-//		for (TeamMaping t : list) {
-//			if (t.pk > 0) {
-//				updateMappingStatus(t);
-//				//public HistoryChange(String tableName, String column, String old_val, String new_val, String description) {
-//				HistoryChange ch = new HistoryChange("AT_Teams", "AT_team_id", "N/A", t.pk + "", "Deleted in HCHB");
-//				insertHistoryChange(ch);
-//			} else {
-//				insertMapping(t);
-//				HistoryChange ch = new HistoryChange("AT_Teams", "ctm_id", "N/A", t.ctmId+"", "New record loaded from HCHB");
-//				insertHistoryChange(ch);
-//			}
-//		}
-//	}
-	
-	public void synBranchTeams() {
+		
+	@Scheduled(cron = "0 5 * * * *")
+	public void synBranchTeams() throws IOException {
+		FileLock lock = Utils.getLock(this.branchSyncLck);
+		if(lock == null) {
+			log.info("BranchTeams have been synced by another process. Stop here!");
+			return;
+		}
+		
+		log.info("Start syncing Branch_teams");
 		// search for the new/deleted records in AT_BRANCH_TEAMS table
 		List<BranchTeam> list = jdbc.query(BranchTeamSql, new RowMapper<BranchTeam>() {
 			@Override
 			public BranchTeam mapRow(ResultSet rs, int rowNum) throws SQLException {
 				BranchTeam m = new BranchTeam();
-				int id = rs.getInt("ID");
-				if (rs.wasNull()) { //new mapping from HCHB
-					m.branchCode = rs.getString("branch_code");
-					m.branchName = rs.getString("branch_name");
-					m.teamId = rs.getInt("team_id");
-					m.teamName = rs.getString("team_name");
-					m.createTs = rs.getTimestamp("create_ts");
-				} else { // records deleted from HCHB but still remained in VNS 
-					// update the AT_Teams record_statsus to "D"
-					m.pk = id;
-					m.recordStatus = "D";
-				}				
+				m.pk = rs.getInt("ID");
+				m.branchCode = rs.getString("branch_code");
+				m.branchName = rs.getString("branch_name");
+				m.teamId = rs.getInt("team_id");
+				m.teamName = rs.getString("team_name");
+				m.createTs = rs.getTimestamp("create_ts");
+								
 				return m;
 			}			
 		}); 
 		
 		for (BranchTeam b : list) {
-			if (b.pk > 0) {
-				updateBranchTeamStatus(b);
-				HistoryChange ch = new HistoryChange("AT_Branch_Teams", "AT_branch_team_id", "N/A", b.pk + "", "Deleted in HCHB");
-				insertHistoryChange(ch);
-			} else {
+			if (b.pk == 0) {//new record
 				insertBranchTeam(b);		
-				HistoryChange ch = new HistoryChange("AT_Branch_Teams", "branch_code", "N/A", b.branchCode, "New record loaded from HCHB");
+				HistoryChange ch = new HistoryChange("AT_Branch_Teams", "branch_code,team_id", "N/A", b.branchCode+","+b.teamId, "New record");
+				insertHistoryChange(ch);
+			} else {	// records deleted from HCHB but still remained in VNS			
+				b.recordStatus = "D";
+				updateBranchTeamStatus(b);
+				HistoryChange ch = new HistoryChange("AT_Branch_Teams", "AT_branch_team_id", "N/A", b.pk + "", "Deleted record, pk[" + b.pk + "]");
 				insertHistoryChange(ch);
 			}
 		}
+		
+		lock.release();
 	}
 	
 	private void updateMappingStatus(TeamMaping t) {
@@ -266,9 +269,9 @@ public class AvailabilityToolDao {
 		}			
 	});
 }
-	
+	// CHHA availability only applied to certain types of programs
 	private boolean isChhaCareType(int careTypeId) {
-		// for care_type 'RN','PT', 'OT', 'SW', 'SLP', 'PD'
+		// for programs: ACUTE CARE,PEDIATRIC,ANTEPARTUM,BEHAVIORAL HEALTH,POSTPARTUM,HOSPITALIZATION  AT HOME
 		int[] careTypes = new int[] {1, 2, 4, 25004, 25026, 25027};
 		
 		for (int typeId : careTypes) {

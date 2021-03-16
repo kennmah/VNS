@@ -1,6 +1,7 @@
 package org.vnsny.ref.service;
 
 import java.io.IOException;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.LocalDate;
@@ -13,6 +14,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.locks.Lock;
 
 import javax.annotation.PostConstruct;
 
@@ -23,6 +25,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.ui.freemarker.FreeMarkerTemplateUtils;
+import org.vnsny.ref.util.Utils;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonMappingException;
@@ -59,6 +62,8 @@ public class ReportService {
 	private Path previousReportFile;
 	private Path archieveFolder;
 	
+	private Path reportLck;
+	
 	@Autowired
 	private ReferEmailer mailer;
 
@@ -72,6 +77,10 @@ public class ReportService {
 
 			reportFile = Paths.get(ReportDirectory, ReportFileName);
 			previousReportFile = Paths.get(ReportDirectory, YESTERDAY_REPORT);
+			reportLck = Paths.get(ReportDirectory, "Report.lck");
+			if (Files.notExists(reportLck)) {
+				reportLck = Files.createFile(reportLck); 
+			}
 		} catch (IOException e) {
 			e.printStackTrace();
 			log.error(e.getMessage(), e);
@@ -102,7 +111,13 @@ public class ReportService {
 //	
 		
 	@Scheduled(cron = "0 0 9 * * *")
-	public void runDailyAmReport() {
+	public void runDailyAmReport() throws IOException {
+		FileLock lock = Utils.getLock(this.reportLck);
+		if(lock == null) {
+			log.info("AmReport has been working by another process. Stop here!");
+			return;
+		}
+		
 		log.info("Create daily AM report...");
 		try {
 			ArrayList<HashMap> list = new ArrayList<>();
@@ -137,13 +152,22 @@ public class ReportService {
 			templateModel.put("refDate", LocalDate.now().toString());
 			
 			mailer.sendReportEmail(HSEmailAddress, ReportEmailAddress, "VNSNY Hospice daily referral report-AM", templateModel);
+			
 		} catch (Exception e) {
 			e.printStackTrace();
+		} finally {
+			lock.release();			
 		}
 	}
 
 	@Scheduled(cron = "0 0 17 * * *")
-	public void runDailyPmReport() {
+	public void runDailyPmReport() throws IOException {
+		FileLock lock = Utils.getLock(this.reportLck);
+		if(lock == null) {
+			log.info("PmReport has been working by another process. Stop here!");
+			return;
+		}
+		
 		log.info("Create daily PM report...");
 		try {
 			ArrayList<HashMap> list = new ArrayList<>();
@@ -176,12 +200,21 @@ public class ReportService {
 			
 			mailer.sendReportEmail(HSEmailAddress, ReportEmailAddress, "VNSNY Hospice daily referral report-PM", templateModel);
 		} catch (Exception e) {
-			e.printStackTrace();
+			log.error(e.getMessage(), e);
+		} finally {
+			lock.release();			
 		}
+		
 	}
 	
 	@Scheduled(cron = "0 0 9 ? * MON")
-	public void runWeeklyReport() {
+	public void runWeeklyReport() throws IOException {	
+		FileLock lock = Utils.getLock(this.reportLck);		
+		if(lock == null) {
+			log.info("Weekly Report has been working by another process. Stop here!");
+			return;
+		}
+		
 		log.info("Create Weekly report...");
 		String[] last = getLastWeek();
 		ArrayList<HashMap> list = new ArrayList<>();
@@ -198,16 +231,24 @@ public class ReportService {
 			//templateModel.put("refDate", LocalDate.now().toString());
 			
 			log.info("sending weekly report");
-			mailer.sendReportEmail(HSEmailAddress, WeeklyReportEmailAddress, "VNSNY Hospice weekly referral report", templateModel);
-			
+			mailer.sendReportEmail(HSEmailAddress, WeeklyReportEmailAddress, "VNSNY Hospice weekly referral report", templateModel);			
 		} catch (Exception e) {
 			log.error("Error in reading weekly files", e);
+		} finally {
+			lock.release();
 		}
 	}
 
 	@Scheduled(cron = "0 0 9 1 * ?")
-	public void runMonthlyReport() {
+	public void runMonthlyReport() throws IOException {
 		log.info("Create Monthly report...");
+		
+		FileLock lock = Utils.getLock(this.reportLck);		
+		if(lock == null) {
+			log.info("Monthly Report has been working by another process. Stop here!");
+			return;
+		}
+		
 		String[] last = getLastMonth();
 		ArrayList<HashMap> list = new ArrayList<>();		
 		
@@ -223,10 +264,11 @@ public class ReportService {
 			templateModel.put("refDate", LocalDate.now().toString());
 			
 			log.info("sending Monthly Report");
-			mailer.sendReportEmail(HSEmailAddress, MonthlyReportEmailAddress, "VNSNY Hospice Monthly referral report", templateModel);
-			
+			mailer.sendReportEmail(HSEmailAddress, MonthlyReportEmailAddress, "VNSNY Hospice Monthly referral report", templateModel);			
 		} catch (Exception e) {
 			log.error("Error in reading weekly files", e);
+		} finally {			
+			lock.release();
 		}
 	}
 	
@@ -256,9 +298,16 @@ public class ReportService {
 		}
 	}
 	
-	public List<Path> getFiles() {
-		
-		return null;
+	public void aquireLock(Path lock) {
+		try {
+			if (Files.notExists(lock)) {
+				lock = Files.createFile(lock); 
+			}
+			
+//			FileInputStream fi = new 
+		}catch(Exception e) {
+			e.printStackTrace();
+		}
 	}
 	
 	

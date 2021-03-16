@@ -2,18 +2,35 @@ package org.vnsny.ref;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 
-import org.junit.jupiter.api.Test;
+import javax.sql.DataSource;
 
+import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.annotation.PropertySource;
+import org.springframework.context.support.AbstractApplicationContext;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+
+import com.zaxxer.hikari.HikariDataSource;
+
+@PropertySource("classpath:application-test.properties")
 class UnitTest {
 
-	@Test
+	//@Test
 	void test() {
 		//ZoneId zonedId = ZoneId.of( "America/Montreal" );
 		//LocalDate today = LocalDate.now( zonedId );
@@ -56,5 +73,17 @@ class UnitTest {
 			System.out.println(s);
 		}
 	}
+	
+	@Test
+	void testFileChannel() throws IOException {
+		AbstractApplicationContext context = new AnnotationConfigApplicationContext(AppConfig.class);
+		System.out.println(Arrays.toString(context.getBeanDefinitionNames()));
+		HikariDataSource dataSource =  context.getBean("getDataSource", HikariDataSource.class);
+		System.out.println("datasource url - " + dataSource.getJdbcUrl());
+		System.out.println("datasource user name - " + dataSource.getUsername());
+	    System.out.println("datasource password - " + dataSource.getPassword());
+	    context.close();
+	}
+	
 
 }

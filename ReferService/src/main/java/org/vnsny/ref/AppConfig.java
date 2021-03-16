@@ -1,10 +1,11 @@
 package org.vnsny.ref;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.jdbc.DataSourceBuilder;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
+import org.springframework.context.annotation.PropertySource;
 import org.apache.catalina.filters.HttpHeaderSecurityFilter;
 
 import javax.sql.DataSource;
@@ -12,8 +13,14 @@ import javax.sql.DataSource;
 import org.apache.catalina.filters.CorsFilter;
 
 @Configuration
-public class AppConfig {
-
+public class AppConfig {	  
+	@Value("jdbc:sqlserver://${HCHB.db.host}:1433;databaseName=CHHA")
+	private String url;
+	@Value("${HCHB.db.username}")
+	private String userName;
+	@Value("${HCHB.db.password}")
+	private String pwd;
+	
 	@Bean
 	public FilterRegistrationBean<HttpHeaderSecurityFilter> headerSecurityFilterRegistrationBean() {
 		FilterRegistrationBean<HttpHeaderSecurityFilter> registrationBean = new FilterRegistrationBean<>();
@@ -48,9 +55,9 @@ public class AppConfig {
     public DataSource getDataSource() {
         DataSourceBuilder dataSourceBuilder = DataSourceBuilder.create();
         dataSourceBuilder.driverClassName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
-        dataSourceBuilder.url("jdbc:sqlserver://HCHB01P-W-E1APV.VNSNY.ORG:1433;databaseName=CHHA");
-        dataSourceBuilder.username("ATUserTst");
-        dataSourceBuilder.password("passWord#1");
+        dataSourceBuilder.url(this.url);
+        dataSourceBuilder.username(this.userName);
+        dataSourceBuilder.password(this.pwd);
         return dataSourceBuilder.build();
     }
 	
